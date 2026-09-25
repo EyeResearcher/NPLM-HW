@@ -69,8 +69,9 @@ _TOKEN_PATTERNS = {
 
 
 def _iter_jsonl_paths(jsonl_dir: str) -> Iterator[str]:
-    for root, _dirs, files in os.walk(jsonl_dir):
-        for fname in files:
+    for root, dirs, files in os.walk(jsonl_dir):
+        dirs.sort()
+        for fname in sorted(files):
             if fname.endswith(".jsonl") or fname.endswith(".jsonl.gz"):
                 yield os.path.join(root, fname)
 
@@ -127,6 +128,41 @@ class TokenizerConfig:
     specials: Optional[List[str]] = None
 
 
+def _validate_config(config: TokenizerConfig) -> None:
+    if config.min_freq < 1:
+        raise ValueError("min_freq must be at least 1")
+    if config.max_vocab is not None and config.max_vocab < 0:
+        raise ValueError("max_vocab must be nonnegative or None")
+    if config.tokenizer not in _TOKEN_PATTERNS:
+        choices = ", ".join(sorted(_TOKEN_PATTERNS))
+        raise ValueError(f"tokenizer must be one of: {choices}")
+
+
+def _special_tokens(config: TokenizerConfig) -> List[str]:
+    """Return unique special tokens with required boundary tokens first."""
+    configured = config.specials if config.specials is not None else []
+    for token in configured:
+        if not isinstance(token, str) or not token:
+            raise ValueError("special tokens must be nonempty strings")
+
+    standard = [PAD, UNK]
+    if config.include_bos:
+        standard.append(BOS)
+    if config.include_eos:
+        standard.append(EOS)
+
+    result: List[str] = []
+    for token in [*standard, *configured]:
+        if token in (BOS, EOS):
+            if token == BOS and not config.include_bos:
+                continue
+            if token == EOS and not config.include_eos:
+                continue
+        if token not in result:
+            result.append(token)
+    return result
+
+
 class WordTokenizer:
     def __init__(
         self,
@@ -135,6 +171,19 @@ class WordTokenizer:
         config: TokenizerConfig,
         freqs: Optional[Dict[str, int]] = None,
     ):
+        _validate_config(config)
+        if len(token_to_id) != len(id_to_token):
+            raise ValueError("token_to_id and id_to_token must have the same size")
+        for expected_id, token in enumerate(id_to_token):
+            if token_to_id.get(token) != expected_id:
+                raise ValueError("token_to_id and id_to_token must be exact inverses")
+        if PAD not in token_to_id or UNK not in token_to_id:
+            raise ValueError("vocabulary must contain <pad> and <unk>")
+        if config.include_bos and BOS not in token_to_id:
+            raise ValueError("include_bos=True requires <bos> in the vocabulary")
+        if config.include_eos and EOS not in token_to_id:
+            raise ValueError("include_eos=True requires <eos> in the vocabulary")
+
         self.token_to_id = token_to_id
         self.id_to_token = id_to_token
         self.config = config
@@ -155,13 +204,20 @@ class WordTokenizer:
         progress: bool = True,
     ) -> "WordTokenizer":
         config = config or TokenizerConfig()
-        specials = config.specials or DEFAULT_SPECIALS
+        _validate_config(config)
+        if not os.path.isdir(jsonl_dir):
+            raise FileNotFoundError(
+                f"JSONL corpus directory does not exist or is not a directory: {jsonl_dir}"
+            )
+        specials = _special_tokens(config)
 
         counter: Counter = Counter()
+        document_count = 0
         texts = iter_text_from_jsonl_dir(jsonl_dir, text_field=text_field)
         iterator = tqdm(texts, desc="Scanning text", unit="doc") if progress else texts
 
         for doc in iterator:
+            document_count += 1
             toks = basic_tokenize(
                 doc,
                 lowercase=config.lowercase,
@@ -169,6 +225,17 @@ class WordTokenizer:
                 strip_punct=config.strip_punct,
             )
             counter.update(toks)
+
+        if document_count == 0:
+            raise ValueError(
+                f"No valid string values for field {text_field!r} were found in "
+                f"JSONL files under: {jsonl_dir}"
+            )
+        if not counter:
+            raise ValueError(
+                f"The corpus under {jsonl_dir} contains valid text rows but no "
+                "tokenizable text"
+            )
 
         items = sorted(counter.items(), key=lambda kv: (-kv[1], kv[0]))
         base_vocab: List[str] = [tok for tok, c in items if c >= config.min_freq]
