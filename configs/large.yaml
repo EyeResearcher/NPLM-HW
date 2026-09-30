@@ -2,13 +2,13 @@ seed: 1337
 tokenizer_type: word
 tokenizer_path: artifacts/wikitext2_word_vocab.json
 context_size: 5
-embedding_dim: 32
-hidden_dim: 64
+embedding_dim: 512
+hidden_dim: 1024
 activation: tanh
-dropout: 0.0
+dropout: 0.1
 optimizer: adam
 lr: 0.001
-batch_size: 128
+batch_size: 512
 max_steps: 20000
 log_every: 100
 eval_every: 1000

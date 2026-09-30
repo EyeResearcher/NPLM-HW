@@ -1,9 +1,15 @@
 {
-  "train_ppl": 425.919982211312,
-  "val_ppl": 410.3399895805842,
-  "test_ppl": 411.3250889862162,
+  "train_loss": 4.326611042022705,
+  "val_loss": 5.188122749328613,
+  "test_loss": 5.196231365203857,
+  "train_accuracy": 0.2538968622684479,
+  "val_accuracy": 0.23043197393417358,
+  "test_accuracy": 0.22730587422847748,
+  "train_ppl": 75.68735019259051,
+  "val_ppl": 179.13196150243937,
+  "test_ppl": 180.59037865060233,
   "tokenizer": "word",
   "vocab_size_or_merges": 20004,
   "context_size": 5,
-  "train_time_sec": 255.6771463000041
+  "train_time_sec": 146.59574130000328
 }
